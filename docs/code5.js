@@ -1,0 +1,430 @@
+gdjs.RewardCode = {};
+gdjs.RewardCode.localVariables = [];
+gdjs.RewardCode.idToCallbackMap = new Map();
+gdjs.RewardCode.GDEyebrowObjects1= [];
+gdjs.RewardCode.GDEyebrowObjects2= [];
+gdjs.RewardCode.GDTitleObjects1= [];
+gdjs.RewardCode.GDTitleObjects2= [];
+gdjs.RewardCode.GDArt_9595mushroomObjects1= [];
+gdjs.RewardCode.GDArt_9595mushroomObjects2= [];
+gdjs.RewardCode.GDArt_9595owlObjects1= [];
+gdjs.RewardCode.GDArt_9595owlObjects2= [];
+gdjs.RewardCode.GDArt_9595squirrelObjects1= [];
+gdjs.RewardCode.GDArt_9595squirrelObjects2= [];
+gdjs.RewardCode.GDArt_9595hedgehogObjects1= [];
+gdjs.RewardCode.GDArt_9595hedgehogObjects2= [];
+gdjs.RewardCode.GDDescriptionObjects1= [];
+gdjs.RewardCode.GDDescriptionObjects2= [];
+gdjs.RewardCode.GDNextButtonObjects1= [];
+gdjs.RewardCode.GDNextButtonObjects2= [];
+gdjs.RewardCode.GDNextLabelObjects1= [];
+gdjs.RewardCode.GDNextLabelObjects2= [];
+
+
+gdjs.RewardCode.userFunc0xcf5280 = function GDJSInlineCode(runtimeScene) {
+(function(module, exports, require){
+(function (root) {
+  'use strict';
+  function hints(line) {
+    const out = []; let run = 0;
+    for (const cell of [...line, 0]) { if (cell) run++; else if (run) { out.push(run); run = 0; } }
+    return out.length ? out : [0];
+  }
+  function validate(grid) {
+    if (!Array.isArray(grid) || !grid.length || !Array.isArray(grid[0]) || !grid[0].length || grid.length > 50 || grid[0].length > 50 || grid.some(r => !Array.isArray(r) || r.length !== grid[0].length || r.some(v => v !== 0 && v !== 1))) throw Error('Некорректное поле (от 1 до 50 клеток по стороне).');
+    return grid;
+  }
+  function clues(grid) {
+    validate(grid);
+    return { rows: grid.map(hints), cols: grid[0].map((_, x) => hints(grid.map(r => r[x]))) };
+  }
+  function matches(grid, player) {
+    const c = clues(grid);
+    return player.length === grid.length && player.every((r, y) => r.length === grid[0].length && JSON.stringify(hints(r.map(v => v === 1 ? 1 : 0))) === JSON.stringify(c.rows[y])) && c.cols.every((h, x) => JSON.stringify(hints(player.map(r => r[x] === 1 ? 1 : 0))) === JSON.stringify(h));
+  }
+  function pixelsToGrid(data, width, height, threshold = 128, invert = false) {
+    return Array.from({ length: height }, (_, y) => Array.from({ length: width }, (_, x) => {
+      const i = (y * width + x) * 4, a = data[i + 3] / 255;
+      const gray = (0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2]) * a + 255 * (1 - a);
+      return Number(invert ? gray >= threshold : gray < threshold);
+    }));
+  }
+  function autoCross(grid, player) {
+    const { rows, cols } = clues(grid), next = player.map(row => row.slice());
+    const complete = (line, clue) => JSON.stringify(hints(line.map(v => Number(v === 1)))) === JSON.stringify(clue);
+    rows.forEach((clue, y) => {
+      if (complete(next[y], clue)) next[y] = next[y].map(v => v === 0 ? -1 : v);
+    });
+    cols.forEach((clue, x) => {
+      if (complete(next.map(row => row[x]), clue)) next.forEach(row => { if (row[x] === 0) row[x] = -1; });
+    });
+    return next;
+  }
+  function nextMark(current, tool) {
+    if (current !== 0) return current;
+    return tool === 1 || tool === -1 ? tool : 0;
+  }
+  function completedRuns(solution, player) {
+    const result = []; let start = -1;
+    for (let i = 0; i <= solution.length; i++) {
+      if (solution[i] === 1 && start < 0) start = i;
+      if (solution[i] !== 1 && start >= 0) {
+        result.push(player.slice(start,i).every(v=>v===1) && player[start-1] !== 1 && player[i] !== 1);
+        start = -1;
+      }
+    }
+    return result.length ? result : [player.every(v=>v!==1)];
+  }
+  // Count up to two solutions; candidate generation and search share a deadline.
+  function analyze(grid, budgetMs = 700) {
+    const c = clues(grid), w = grid[0].length, h = grid.length, end = Date.now() + budgetMs;
+    let ticks = 0, count = 0, first = null;
+    const check = () => { if (++ticks % 128 === 0 && Date.now() >= end) throw Error('timeout'); };
+    function patterns(size, clue) {
+      const out = [], runs = clue[0] === 0 ? [] : clue;
+      function place(i, start, line) {
+        check(); if (out.length > 15000) throw Error('timeout');
+        if (i === runs.length) { out.push(line); return; }
+        const needed = runs.slice(i).reduce((a, b) => a + b, 0) + runs.length - i - 1;
+        for (let pos = start; pos <= size - needed; pos++) {
+          const next = line.slice(); next.fill(1, pos, pos + runs[i]); place(i + 1, pos + runs[i] + 1, next);
+        }
+      }
+      place(0, 0, Array(size).fill(0)); return out;
+    }
+    function search(rows, cols) {
+      check(); if (count >= 2) return;
+      let changed = true;
+      while (changed) {
+        changed = false;
+        for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+          check();
+          for (const [source, index, target, cell] of [[rows[y], x, cols, y], [cols[x], y, rows, x]]) {
+            const value = source[0][index];
+            if (source.every(p => p[index] === value)) {
+              const ti = target === cols ? x : y, before = target[ti];
+              const filtered = before.filter(p => p[cell] === value);
+              if (!filtered.length) return;
+              if (filtered.length !== before.length) { target[ti] = filtered; changed = true; }
+            }
+          }
+        }
+      }
+      let choice = null;
+      for (const [group, name] of [[rows, 'rows'], [cols, 'cols']]) group.forEach((p, i) => { if (p.length > 1 && (!choice || p.length < choice.options.length)) choice = { name, i, options: p }; });
+      if (!choice) { count++; if (!first) first = rows.map(p => p[0]); return; }
+      for (const p of choice.options) {
+        const nr = rows.slice(), nc = cols.slice(); (choice.name === 'rows' ? nr : nc)[choice.i] = [p];
+        search(nr, nc); if (count >= 2) break;
+      }
+    }
+    try { search(c.rows.map(p => patterns(w, p)), c.cols.map(p => patterns(h, p))); }
+    catch (e) { if (e.message !== 'timeout') throw e; return { status: 'unknown', count, solution: first }; }
+    return { status: count === 1 ? 'unique' : count > 1 ? 'multiple' : 'none', count, solution: first };
+  }
+  const api = { hints, clues, matches, validate, pixelsToGrid, autoCross, nextMark, completedRuns, analyze };
+  if (typeof module !== 'undefined') module.exports = api; else root.NonogramCore = api;
+})(typeof window !== 'undefined' ? window : globalThis);
+
+(function(root){
+const levels=[{"id": "mushroom", "title": "Под старым дубом", "object": "Гриб", "x": 30, "y": 77, "grid": [[0, 0, 0, 0, 1, 1, 0, 0, 0, 0], [0, 0, 0, 1, 1, 1, 1, 0, 0, 0], [0, 0, 1, 1, 1, 1, 1, 1, 0, 0], [0, 1, 1, 1, 1, 1, 1, 1, 1, 0], [1, 1, 1, 1, 1, 1, 1, 1, 1, 1], [0, 0, 0, 0, 1, 1, 0, 0, 0, 0], [0, 0, 0, 0, 1, 1, 0, 0, 0, 0], [0, 0, 0, 0, 1, 1, 0, 0, 0, 0], [0, 0, 0, 0, 1, 1, 0, 0, 0, 0], [0, 0, 0, 1, 1, 1, 1, 0, 0, 0]]}, {"id": "owl", "title": "Хранитель сумерек", "object": "Сова", "x": 72, "y": 37, "grid": [[1, 1, 0, 0, 0, 0, 0, 0, 1, 1], [1, 1, 1, 0, 0, 0, 0, 1, 1, 1], [1, 1, 1, 1, 1, 1, 1, 1, 1, 1], [1, 1, 1, 1, 1, 1, 1, 1, 1, 1], [1, 1, 0, 1, 1, 1, 1, 0, 1, 1], [1, 1, 1, 1, 1, 1, 1, 1, 1, 1], [0, 1, 1, 1, 1, 1, 1, 1, 1, 0], [0, 0, 1, 1, 1, 1, 1, 1, 0, 0], [0, 0, 0, 1, 1, 1, 1, 0, 0, 0], [0, 0, 0, 0, 1, 1, 0, 0, 0, 0]]}, {"id": "squirrel", "title": "Гость на ветке", "object": "Белка", "x": 43, "y": 23, "grid": [[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0], [0, 0, 0, 0, 1, 1, 0, 0, 1, 1, 1, 1, 1, 0, 0], [0, 0, 0, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 0], [0, 0, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 0], [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0], [0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0], [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0], [0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0], [0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0], [0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0], [0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0], [0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0], [0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]], "displaySize": 140}, {"id": "hedgehog", "title": "Шорох в траве", "object": "Ёж", "x": 80, "y": 78, "grid": [[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 1, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0], [0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0], [0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0], [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0], [0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0], [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], [0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0], [0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0], [0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0], [0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 1, 0, 0, 0, 0], [0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 1, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]]}];
+if(typeof module!=="undefined")module.exports=levels;else root.NonogramLevels=levels;
+})(typeof window!=="undefined"?window:globalThis);
+
+(function(root){
+  'use strict';
+  const C=typeof module!=='undefined'?require('./core'):root.NonogramCore;
+  function create(grid, saved, autoCross=true){
+    C.validate(grid);
+    const valid=saved && JSON.stringify(saved.grid)===JSON.stringify(grid) && Number.isInteger(saved.lives) && saved.lives>0 && saved.lives<=3 && Array.isArray(saved.player) && saved.player.length===grid.length && saved.player.every((r,y)=>Array.isArray(r)&&r.length===grid[y].length&&r.every((v,x)=>[0,1,-1].includes(v)&&!(v===1&&!grid[y][x])));
+    const s={grid:grid.map(r=>r.slice()),player:valid?saved.player.map(r=>r.slice()):grid.map(r=>r.map(()=>0)),lives:valid?saved.lives:3,done:false,failed:false};
+    if(autoCross)s.player=C.autoCross(s.grid,s.player);
+    return s;
+  }
+  function apply(s,x,y,tool,autoCross=true){
+    if(s.done||s.failed||!s.player[y]||s.player[y][x]===undefined||![1,-1].includes(tool))return {changed:false};
+    const next=C.nextMark(s.player[y][x],tool);
+    if(next===s.player[y][x])return {changed:false};
+    const error=next===1&&!s.grid[y][x];
+    s.player[y][x]=error?-1:next;
+    if(error)s.lives--;
+    s.failed=s.lives===0;
+    if(autoCross&&!s.failed)s.player=C.autoCross(s.grid,s.player);
+    s.done=!s.failed&&C.matches(s.grid,s.player);
+    return {changed:true,error,won:s.done,failed:s.failed};
+  }
+  const api={create,apply};
+  if(typeof module!=='undefined')module.exports=api;else root.QuietForestSession=api;
+})(typeof window!=='undefined'?window:globalThis);
+
+/* GDevelop adapter. Every visible game element is a native Sprite or Text object.
+   This file is compiled into scene events by tools/build-project.py. */
+(function(root){
+  'use strict';
+  if(root.QuietForestGD)return;
+  const C=root.NonogramCore,S=root.QuietForestSession,levels=root.NonogramLevels;
+  const KEY='quiet-forest-gdevelop-v1',INK='37;62;52',GRAY='153;163;147';
+  const clone=v=>JSON.parse(JSON.stringify(v));
+  const obj=(scene,name)=>scene.getObjects(name)[0];
+  const text=(scene,name,value)=>{const o=obj(scene,name);if(o)o.setString(String(value));};
+  function state(scene){
+    const game=scene.getGame();
+    if(!game.__quietForest){
+      let saved={completed:[],sessions:{},autoCross:true};
+      try{const raw=JSON.parse(localStorage.getItem(KEY));if(raw&&Array.isArray(raw.completed)&&raw.sessions&&typeof raw.sessions==='object'){saved={completed:raw.completed.filter(id=>levels.some(l=>l.id===id)),sessions:raw.sessions,autoCross:raw.autoCross!==false};}}catch(_){saved.storageWarning=true;}
+      game.__quietForest=saved;
+    }
+    return game.__quietForest;
+  }
+  function persist(scene){
+    const s=state(scene);
+    try{localStorage.setItem(KEY,JSON.stringify({completed:s.completed,sessions:s.sessions,autoCross:s.autoCross}));}catch(_){s.storageWarning=true;}
+  }
+  function savePuzzle(scene){
+    const q=scene.__qf,s=state(scene);
+    if(!q.model)return;
+    if(q.model.done||q.model.failed)delete s.sessions[q.id];
+    else s.sessions[q.id]=clone(q.model);
+    persist(scene);
+  }
+  function changeScene(scene,name){gdjs.evtTools.runtimeScene.replaceScene(scene,name,false);}
+  function sceneFor(id){return id==='mushroom'?'Nonogram':`Nonogram_${id}`;}
+  function buttonHit(scene,name){const o=obj(scene,name);return o&&!o.isHidden()&&o.cursorOnObject();}
+  function enter(scene,kind,id){
+    const shared=state(scene);
+    const q=scene.__qf={kind,id,age:0,tool:1,phase:'play',restartUntil:0,lastCell:'',left:false,right:false};
+    if(kind==='forest'){
+      text(scene,'Progress',`${shared.completed.length} / ${levels.length} открытий`);
+      text(scene,'ForestCaption',shared.storageWarning?'Сохранения недоступны: прогресс останется до закрытия игры.':'Нажмите на неизвестный объект, чтобы открыть головоломку.');
+      levels.forEach(level=>{const o=obj(scene,`Discovery_${level.id}`);const width=o.getWidth(),height=o.getHeight();o.setAnimation(shared.completed.includes(level.id)?1:0);o.setWidth(width);o.setHeight(height);q[`home_${level.id}`]={x:o.getX(),y:o.getY(),w:o.getWidth(),h:o.getHeight()};text(scene,`CardLabel_${level.id}`,`${level.title}\n${level.grid.length}×${level.grid[0].length}${shared.completed.includes(level.id)?' · '+level.object:''}`);});
+      q.revealId=shared.pendingReveal;delete shared.pendingReveal;
+      obj(scene,'RevealRing').hide();
+      if(q.revealId){text(scene,'ForestCaption',`${levels.find(l=>l.id===q.revealId).object} теперь на лесной поляне.`);obj(scene,'RevealRing').hide(false);}
+    }else if(kind==='puzzle'){
+      q.level=levels.find(l=>l.id===id);q.model=S.create(q.level.grid,shared.sessions[id],shared.autoCross);
+      text(scene,'Title',q.level.title);
+      text(scene,'Message','Заполняйте клетки по числам.\nОтметки не стираются.');
+      obj(scene,'RewardArt').hide();
+      q.geometry=clone(root.QuietForestLayouts[id]);
+      q.cells=scene.getObjects('Cell').map(o=>({o,x:o.getVariables().get('GridX').getAsNumber(),y:o.getVariables().get('GridY').getAsNumber(),px:o.getX(),py:o.getY()}));
+      paint(scene);savePuzzle(scene);
+    }else if(kind==='reward'){
+      q.id=shared.rewardId||levels[0].id;
+      const level=levels.find(l=>l.id===q.id);
+      text(scene,'Title',`Это ${level.object.toLocaleLowerCase('ru')}!`);
+      text(scene,'Description','Секрет разгадан. Верните находку на лесную поляну.');
+      levels.forEach(l=>obj(scene,`Art_${l.id}`).hide(l.id!==q.id));
+    }
+  }
+  function paint(scene){
+    const q=scene.__qf,s=q.model,shared=state(scene);
+    for(const {o,x,y} of q.cells)o.setAnimation(s.player[y][x]===1?1:s.player[y][x]===-1?2:0);
+    const clues=C.clues(s.grid),rows=s.grid.map((r,y)=>C.completedRuns(r,s.player[y]));
+    const cols=s.grid[0].map((_,x)=>C.completedRuns(s.grid.map(r=>r[x]),s.player.map(r=>r[x])));
+    for(const h of scene.getObjects('Hint')){
+      const v=h.getVariables(),axis=v.get('Axis').getAsString(),line=v.get('Line').getAsNumber(),run=v.get('Run').getAsNumber();
+      h.setString(String((axis==='row'?clues.rows:clues.cols)[line][run]));
+      h.setColor((axis==='row'?rows:cols)[line][run]?GRAY:INK);
+    }
+    for(let i=0;i<3;i++)obj(scene,`Heart${i}`).setAnimation(i<s.lives?0:1);
+    text(scene,'LivesLabel',`${s.lives} / 3`);
+    text(scene,'AutoLabel',`${shared.autoCross?'☑':'☐'} Автокрестики`);
+    text(scene,'FillLabel',`${q.tool===1?'● ':'○ '}Закрасить`);
+    text(scene,'CrossLabel',`${q.tool===-1?'● ':'○ '}Крестик`);
+    text(scene,'BoardSize',`${s.grid[0].length} × ${s.grid.length}`);
+  }
+  function command(scene,name){
+    const q=scene.__qf;
+    if(q.kind==='reward'&&name==='next'){
+      state(scene).pendingReveal=q.id;changeScene(scene,'Forest');return;
+    }
+    if(q.kind!=='puzzle'||q.phase!=='play')return;
+    if(name==='back'){savePuzzle(scene);changeScene(scene,'Forest');return;}
+    if(name==='fill'||name==='cross'){q.tool=name==='fill'?1:-1;paint(scene);return;}
+    if(name==='auto'){
+      state(scene).autoCross=!state(scene).autoCross;
+      if(state(scene).autoCross)q.model.player=C.autoCross(q.model.grid,q.model.player);
+      paint(scene);savePuzzle(scene);return;
+    }
+    if(name==='restart'){
+      if(q.age>q.restartUntil){q.restartUntil=q.age+3;text(scene,'RestartLabel','Подтвердить сброс');return;}
+      q.model=S.create(q.level.grid,null,state(scene).autoCross);q.restartUntil=0;text(scene,'RestartLabel','Начать заново');text(scene,'Message','Новая попытка. У вас три жизни.');paint(scene);savePuzzle(scene);
+    }
+  }
+  function applyCell(scene,x,y,tool){
+    const q=scene.__qf;if(q.phase!=='play')return {changed:false};
+    const result=S.apply(q.model,x,y,tool,state(scene).autoCross);
+    if(!result.changed)return result;
+    if(result.error){q.errorAge=0;q.lostHeart=q.model.lives;text(scene,'Message',q.model.failed?'Жизни закончились.\nНажмите «Начать заново».':'Ошибка: минус одна жизнь.\nЗдесь стоит крестик.');}
+    paint(scene);savePuzzle(scene);
+    if(result.won){
+      q.phase='morph';q.morphAge=0;
+      const shared=state(scene);if(!shared.completed.includes(q.id))shared.completed.push(q.id);shared.rewardId=q.id;persist(scene);
+      text(scene,'Message','Клетки оживают…');
+      obj(scene,'RewardArt').hide(false);obj(scene,'RewardArt').setOpacity(0);
+    }
+    return result;
+  }
+  function tick(scene){
+    const q=scene.__qf;if(!q)return;
+    const dt=Math.min(scene.getElapsedTime()/1000,.1);q.age+=dt;
+    const input=scene.getGame().getInputManager(),left=input.isMouseButtonPressed(0),right=input.isMouseButtonPressed(1),released=input.isMouseButtonReleased(0),rightReleased=input.isMouseButtonReleased(1);
+    if(q.kind==='forest'){
+      if(q.revealId){
+        const t=Math.min(q.age/2.2,1),home=q[`home_${q.revealId}`],o=obj(scene,`Discovery_${q.revealId}`),scale=1+.65*(1-t)*(1-t);
+        o.setWidth(home.w*scale);o.setHeight(home.h*scale);o.setPosition(home.x-(o.getWidth()-home.w)/2,home.y-(o.getHeight()-home.h)/2-20*(1-t));o.setOpacity(Math.min(255,q.age*550));
+        const ring=obj(scene,'RevealRing'),size=home.w*(1+1.4*t);ring.setPosition(home.x+home.w/2-size/2,home.y+home.h/2-size/2);ring.setWidth(size);ring.setHeight(size);ring.setOpacity(255*(1-t));
+        if(t===1){ring.hide();q.revealId=null;}
+      }
+      if(released&&q.age>.2){
+        for(const l of levels)if(buttonHit(scene,`Discovery_${l.id}`)||buttonHit(scene,`Card_${l.id}`)){changeScene(scene,sceneFor(l.id));return;}
+      }
+    }else if(q.kind==='reward'){
+      if(released&&q.age>.2&&buttonHit(scene,'NextButton'))command(scene,'next');
+    }else if(q.kind==='puzzle'){
+      if(q.phase==='morph'){
+        q.morphAge+=dt;const t=Math.min(q.morphAge/.8,1),fade=Math.max(0,Math.min((q.morphAge-.7)/1.2,1)),g=q.geometry;
+        const targetSize=330/q.model.grid.length,tx=430,ty=230;
+        for(const c of q.cells){
+          if(q.model.player[c.y][c.x]!==1){c.o.setOpacity(255*(1-t));continue;}
+          const ease=1-Math.pow(1-t,3);c.o.setPosition(c.px+(tx+c.x*targetSize-c.px)*ease,c.py+(ty+c.y*targetSize-c.py)*ease);c.o.setWidth(g.cell+(targetSize-g.cell)*ease);c.o.setHeight(g.cell+(targetSize-g.cell)*ease);c.o.setOpacity(255*(1-fade));
+        }
+        scene.getObjects('Hint').forEach(o=>o.setOpacity(255*(1-t)));
+        for(let i=0;i<=q.model.grid.length;i+=5)for(const prefix of ['GridV','GridH']){const line=obj(scene,prefix+i);if(line)line.setOpacity(255*(1-t));}
+        obj(scene,'RewardArt').setOpacity(255*fade);
+        if(q.morphAge>=2.1)changeScene(scene,'Reward');
+        return;
+      }
+      if(q.restartUntil&&q.age>q.restartUntil){q.restartUntil=0;text(scene,'RestartLabel','Начать заново');}
+      for(let i=0;i<3;i++){
+        const heart=obj(scene,`Heart${i}`),baseX=972+i*43;
+        if(q.errorAge!==undefined&&q.lostHeart===i&&q.errorAge<.6)heart.setX(baseX+Math.sin(q.errorAge*45)*5*(1-q.errorAge/.6));else heart.setX(baseX);
+        if(i===0&&q.model.lives===1)heart.setOpacity(210+45*Math.sin(q.age*4));else heart.setOpacity(255);
+      }
+      if(q.errorAge!==undefined)q.errorAge+=dt;
+      if(released&&q.age>.2){for(const [o,cmd] of [['BackButton','back'],['FillButton','fill'],['CrossButton','cross'],['AutoButton','auto'],['RestartButton','restart']])if(buttonHit(scene,o)){command(scene,cmd);break;}}
+      if((left||right||released||rightReleased)&&q.age>.2&&!q.model.failed){
+        const x=gdjs.evtTools.input.getCursorX(scene,'',0),y=gdjs.evtTools.input.getCursorY(scene,'',0),g=q.geometry;
+        const selected=right||rightReleased?-1:q.tool;
+        const cx=Math.floor((x-g.x)/g.cell),cy=Math.floor((y-g.y)/g.cell),cell=`${cx},${cy},${selected}`;
+        if(!q.left&&!q.right)q.lastCell='';
+        if(cell!==q.lastCell){q.lastCell=cell;applyCell(scene,cx,cy,selected);}
+      }
+    }
+    q.left=left;q.right=right;
+  }
+  root.QuietForestGD={enter,tick,command,applyCell,sceneFor};
+})(globalThis);
+
+})(undefined, undefined, undefined);
+globalThis.QuietForestLayouts={"mushroom": {"x": 230, "y": 220, "cell": 42}, "owl": {"x": 230, "y": 220, "cell": 42}, "squirrel": {"x": 230, "y": 220, "cell": 30}, "hedgehog": {"x": 230, "y": 220, "cell": 30}};
+
+QuietForestGD.enter(runtimeScene,"reward",null);
+};
+gdjs.RewardCode.eventsList0 = function(runtimeScene) {
+
+{
+
+
+gdjs.RewardCode.userFunc0xcf5280(runtimeScene);
+
+}
+
+
+};gdjs.RewardCode.userFunc0x9c8c20 = function GDJSInlineCode(runtimeScene) {
+QuietForestGD.tick(runtimeScene);
+};
+gdjs.RewardCode.eventsList1 = function(runtimeScene) {
+
+{
+
+
+let isConditionTrue_0 = false;
+isConditionTrue_0 = false;
+isConditionTrue_0 = gdjs.evtTools.runtimeScene.sceneJustBegins(runtimeScene);
+if (isConditionTrue_0) {
+
+{ //Subevents
+gdjs.RewardCode.eventsList0(runtimeScene);} //End of subevents
+}
+
+}
+
+
+{
+
+
+gdjs.RewardCode.userFunc0x9c8c20(runtimeScene);
+
+}
+
+
+{
+
+
+let isConditionTrue_0 = false;
+isConditionTrue_0 = false;
+{isConditionTrue_0 = (0 == 1);
+}
+if (isConditionTrue_0) {
+isConditionTrue_0 = false;
+isConditionTrue_0 = gdjs.evtTools.input.isMouseButtonPressed(runtimeScene, "");
+}
+if (isConditionTrue_0) {
+{gdjs.evtTools.runtimeScene.replaceScene(runtimeScene, "", false);
+}
+}
+
+}
+
+
+};
+
+gdjs.RewardCode.func = function(runtimeScene) {
+runtimeScene.getOnceTriggers().startNewFrame();
+
+gdjs.RewardCode.GDEyebrowObjects1.length = 0;
+gdjs.RewardCode.GDEyebrowObjects2.length = 0;
+gdjs.RewardCode.GDTitleObjects1.length = 0;
+gdjs.RewardCode.GDTitleObjects2.length = 0;
+gdjs.RewardCode.GDArt_9595mushroomObjects1.length = 0;
+gdjs.RewardCode.GDArt_9595mushroomObjects2.length = 0;
+gdjs.RewardCode.GDArt_9595owlObjects1.length = 0;
+gdjs.RewardCode.GDArt_9595owlObjects2.length = 0;
+gdjs.RewardCode.GDArt_9595squirrelObjects1.length = 0;
+gdjs.RewardCode.GDArt_9595squirrelObjects2.length = 0;
+gdjs.RewardCode.GDArt_9595hedgehogObjects1.length = 0;
+gdjs.RewardCode.GDArt_9595hedgehogObjects2.length = 0;
+gdjs.RewardCode.GDDescriptionObjects1.length = 0;
+gdjs.RewardCode.GDDescriptionObjects2.length = 0;
+gdjs.RewardCode.GDNextButtonObjects1.length = 0;
+gdjs.RewardCode.GDNextButtonObjects2.length = 0;
+gdjs.RewardCode.GDNextLabelObjects1.length = 0;
+gdjs.RewardCode.GDNextLabelObjects2.length = 0;
+
+gdjs.RewardCode.eventsList1(runtimeScene);
+gdjs.RewardCode.GDEyebrowObjects1.length = 0;
+gdjs.RewardCode.GDEyebrowObjects2.length = 0;
+gdjs.RewardCode.GDTitleObjects1.length = 0;
+gdjs.RewardCode.GDTitleObjects2.length = 0;
+gdjs.RewardCode.GDArt_9595mushroomObjects1.length = 0;
+gdjs.RewardCode.GDArt_9595mushroomObjects2.length = 0;
+gdjs.RewardCode.GDArt_9595owlObjects1.length = 0;
+gdjs.RewardCode.GDArt_9595owlObjects2.length = 0;
+gdjs.RewardCode.GDArt_9595squirrelObjects1.length = 0;
+gdjs.RewardCode.GDArt_9595squirrelObjects2.length = 0;
+gdjs.RewardCode.GDArt_9595hedgehogObjects1.length = 0;
+gdjs.RewardCode.GDArt_9595hedgehogObjects2.length = 0;
+gdjs.RewardCode.GDDescriptionObjects1.length = 0;
+gdjs.RewardCode.GDDescriptionObjects2.length = 0;
+gdjs.RewardCode.GDNextButtonObjects1.length = 0;
+gdjs.RewardCode.GDNextButtonObjects2.length = 0;
+gdjs.RewardCode.GDNextLabelObjects1.length = 0;
+gdjs.RewardCode.GDNextLabelObjects2.length = 0;
+
+
+return;
+
+}
+
+gdjs['RewardCode'] = gdjs.RewardCode;
